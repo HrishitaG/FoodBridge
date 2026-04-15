@@ -155,8 +155,8 @@ app.post('/api/listings', async (req, res) => {
 
 app.delete('/api/listings/:id', async (req, res) => {
     try {
-        await Listing.destroy({ where: { id: req.params.id } });
         await Order.destroy({ where: { listingId: req.params.id } });
+        await Listing.destroy({ where: { id: req.params.id } });
         res.json({ message: 'Listing deleted' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -182,57 +182,114 @@ app.post('/api/orders', async (req, res) => {
     const otpExpiry = new Date(Date.now() + 5 * 60000); // 5 minutes
 
     try {
-        // Check for existing pending order
-        const existingOrder = await Order.findOne({ where: { listingId, receiverId, status: 'pending' } });
-        if (existingOrder) {
-            return res.status(400).json({ error: 'You already have a pending order for this item. Please check your email for OTP.' });
-        }
+        let order = await Order.findOne({ where: { listingId, receiverId, status: 'pending' } });
+        let isExisting = false;
+        
+        if (order) {
+            order.otp = otp;
+            order.otpExpiry = otpExpiry;
+            await order.save();
+            isExisting = true;
+        } else {
+            // Check if listing is still active
+            const listing = await Listing.findByPk(listingId);
+            if (!listing || listing.status !== 'active') {
+                return res.status(400).json({ error: 'This listing is no longer available.' });
+            }
 
-        // Check if listing is still active
-        const listing = await Listing.findByPk(listingId);
-        if (!listing || listing.status !== 'active') {
-            return res.status(400).json({ error: 'This listing is no longer available.' });
+            order = await Order.create({
+                listingId, receiverId, donorId, amount, otp, otpExpiry
+            });
         }
-
-        const order = await Order.create({
-            listingId, receiverId, donorId, amount, otp, otpExpiry
-        });
 
         // Fetch receiver info for email
         const receiver = await User.findByPk(receiverId);
+        const listing = await Listing.findByPk(listingId);
 
         if (receiver) {
-            await sendEmail(receiver.email, 'FoodBridge OTP Verification',
+            await sendEmail(receiver.email, 'FoodBridge: Request Sent to Donor',
                 `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
-                    <h2 style="color:#2d6a4f">🔐 Order Verification</h2>
+                    <h2 style="color:#2d6a4f">⏳ Request Pending Donor Approval</h2>
                     <p>Hello <b>${receiver.name}</b>,</p>
-                    <p>You requested <b>${listing.name}</b>. Enter this OTP to confirm your order.</p>
+                    <p>Your request for <b>${listing.name}</b> has been sent to the donor.</p>
+                    <p>We will email you the OTP to complete the pickup once the donor confirms the order.</p>
+                </div>`
+            );
+        }
+
+        if (!isExisting) {
+            const donor = await User.findByPk(donorId);
+            if (donor) {
+                await sendEmail(donor.email, 'FoodBridge: Action Required - New Food Request',
+                    `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
+                        <h2 style="color:#2d6a4f">📬 Food Request Received!</h2>
+                        <p><b>Receiver Name:</b> ${receiver ? receiver.name : 'Unknown'}</p>
+                        <p><b>Receiver Email:</b> ${receiver ? receiver.email : 'N/A'}</p>
+                        <p><b>Contact Details:</b> ${receiver && receiver.phone ? receiver.phone : 'N/A'}</p>
+                        <p><b>Requested Food Item:</b> ${listing.name}</p>
+                        <p><b>Quantity:</b> ${listing.quantity}</p>
+                        <p><b>Pickup Location:</b> ${listing.location}</p>
+                        <div style="text-align:center; margin-top:24px;">
+                            <a href="http://localhost:${PORT}/api/orders/approve/${order.id}" 
+                               style="display:inline-block;padding:14px 28px;background:#E65100;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;">
+                               ✅ Confirm Order
+                            </a>
+                        </div>
+                    </div>`
+                );
+            }
+        }
+
+        res.status(201).json({ message: 'Order sent to donor for confirmation.', orderId: order.id });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/orders/approve/:id', async (req, res) => {
+    try {
+        const order = await Order.findByPk(req.params.id);
+        if (!order) return res.status(404).send('Order not found.');
+        if (order.status !== 'pending') return res.status(400).send('Order already processed.');
+
+        const otpExpiry = new Date(Date.now() + 24 * 60 * 60000); // 24 hours to pickup
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        order.status = 'approved';
+        order.otp = otp;
+        order.otpExpiry = otpExpiry;
+        await order.save();
+
+        const receiver = await User.findByPk(order.receiverId);
+        const listing = await Listing.findByPk(order.listingId);
+
+        if (receiver && listing) {
+            await sendEmail(receiver.email, 'FoodBridge: Order Approved! Here is your OTP.',
+                `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
+                    <h2 style="color:#2d6a4f">🎉 Order Approved!</h2>
+                    <p>Hello <b>${receiver.name}</b>,</p>
+                    <p>The donor has confirmed your request for <b>${listing.name}</b>.</p>
+                    <p>Please enter this OTP in the app to complete your pickup:</p>
                     <div style="text-align:center;margin:24px 0;padding:20px;background:#d8f3dc;border-radius:8px">
                         <div style="font-size:36px;font-weight:900;letter-spacing:8px;color:#1b4332">${otp}</div>
                     </div>
-                    <p style="color:#888;font-size:13px">⏰ This code expires in <b>5 minutes</b>.</p>
+                    <p style="color:#888;font-size:13px">⏰ This code expires in <b>24 hours</b>.</p>
                 </div>`
             );
         }
 
-        const donor = await User.findByPk(donorId);
-        if (donor) {
-            await sendEmail(donor.email, 'FoodBridge: New Food Request Received',
-                `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
-                    <h2 style="color:#2d6a4f">📬 Food Request Received!</h2>
-                    <p><b>Receiver Name:</b> ${receiver ? receiver.name : 'Unknown'}</p>
-                    <p><b>Receiver Email:</b> ${receiver ? receiver.email : 'N/A'}</p>
-                    <p><b>Contact Details:</b> ${receiver && receiver.phone ? receiver.phone : 'N/A'}</p>
-                    <p><b>Requested Food Item:</b> ${listing.name}</p>
-                    <p><b>Quantity:</b> ${listing.quantity}</p>
-                    <p><b>Pickup Location:</b> ${listing.location}</p>
-                </div>`
-            );
-        }
-
-        res.status(201).json({ message: 'OTP sent to your email.', orderId: order.id });
+        res.send(`
+            <div style="font-family:sans-serif;text-align:center;padding:60px 20px;background:#fff8ec;min-height:100vh">
+                <div style="max-width:480px;margin:0 auto;background:white;padding:48px;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.1)">
+                    <div style="font-size:64px;margin-bottom:16px">✅</div>
+                    <h1 style="color:#E65100;font-family:Georgia,serif;margin-bottom:12px">Order Confirmed!</h1>
+                    <p style="color:#666;margin-bottom:32px">The request has been approved. The receiver has been sent the OTP to complete the pickup.</p>
+                    <a href="http://localhost:${PORT}" style="display:inline-block;padding:14px 32px;background:#E65100;color:#fff;text-decoration:none;border-radius:50px;font-weight:700;font-size:15px">Return to Food Bridge</a>
+                </div>
+            </div>
+        `);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).send('Error approving order: ' + error.message);
     }
 });
 
@@ -249,8 +306,8 @@ app.post('/api/orders/verify', async (req, res) => {
         order.status = 'completed';
         await order.save();
 
-        // Mark listing as completed
-        await Listing.update({ status: 'completed' }, { where: { id: order.listingId } });
+        // Leave listing active so other portions can be claimed. Donor explicitly marks it done.
+        // await Listing.update({ status: 'completed' }, { where: { id: order.listingId } });
 
         // Notify both parties
         const donor = await User.findByPk(order.donorId);

@@ -78,7 +78,7 @@ function setCurrentUser(user, token) {
 // ============================================================
 // UTILITIES
 // ============================================================
-let _pendingRequest = null;
+let _pendingRequest = JSON.parse(sessionStorage.getItem('fb_pending_request') || 'null');
 let _toastTimer;
 
 function showToast(msg, type = 'success') {
@@ -427,9 +427,6 @@ async function submitFoodListing() {
   }
 
   const user = currentUser();
-  if (!user.isVerified) {
-    errEl.textContent = '⚠️ Please verify your email before posting food.'; errEl.style.display = 'block'; return;
-  }
 
   const imgInput = document.getElementById('pf-image');
   let image = null;
@@ -666,6 +663,22 @@ async function renderDonorRequests() {
 
   const requests = res.requests;
   const el = document.getElementById('donor-requests-list');
+  
+  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  
+  // Update sidebar badge
+  const sidebarBadge = document.getElementById('donor-req-badge');
+  if (sidebarBadge) {
+    sidebarBadge.textContent = pendingCount;
+    sidebarBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+  }
+  
+  // Update header badge
+  const headerBadge = document.getElementById('donor-req-header-badge');
+  if (headerBadge) {
+    headerBadge.textContent = `${pendingCount} Pending`;
+    headerBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+  }
 
   if (requests.length === 0) {
     el.innerHTML = `<div class="empty-full">
@@ -686,6 +699,9 @@ async function renderDonorRequests() {
           <span>📦 ${r.quantity}</span>
           <span>${r.amount > 0 ? '💰 ₹' + r.amount : '🆓 Free Claim'}</span>
           ${r.receiverEmail ? `<span>✉️ ${r.receiverEmail}</span>` : ''}
+        </div>
+        <div style="margin-top:8px; padding:8px; background:#f0fff4; border-left:3px solid #2d6a4f; border-radius:4px; font-size:13px; color:#1b4332;">
+          💬 <strong>Message:</strong> A request has been made by ${r.receiverName} for ${r.foodName}.
         </div>
       </div>
       <div class="req-status">
@@ -789,7 +805,7 @@ function buildReceiverCard(l) {
         <div class="food-urgency ${exp.cls}">${exp.label}</div>
         <div class="food-card-footer">
           <div class="${l.type === 'free' ? 'food-price free-price' : 'food-price'}">${l.type === 'free' ? '🆓 Free' : '₹' + l.price}</div>
-          <button class="btn ${l.type === 'free' ? 'btn-primary' : 'btn-amber'} btn-sm" onclick="event.stopPropagation(); openFoodDetail('${l._id}')">
+          <button class="btn ${l.type === 'free' ? 'btn-primary' : 'btn-amber'} btn-sm" onclick="event.stopPropagation(); claimOrOrder('${l._id}', this)">
             ${l.type === 'free' ? '🎁 Claim' : '🛍️ Order'}
           </button>
         </div>
@@ -802,7 +818,7 @@ function buildReceiverCard(l) {
 // ============================================================
 async function openFoodDetail(id) {
   const listings = await API.get('/listings');
-  const l = listings.find(x => x._id === id);
+  const l = listings.find(x => String(x._id) === String(id));
   if (!l) return;
   const exp = getExpiryStatus(l.expiryTime);
   const user = currentUser();
@@ -831,22 +847,19 @@ async function openFoodDetail(id) {
   document.getElementById('modal-food-detail').classList.add('active');
 }
 
-async function claimOrOrder(listingId) {
+async function claimOrOrder(listingId, btnElement = null) {
   const user = currentUser();
   if (!user) { showToast('Please login first.', 'error'); return; }
 
-  if (!user.isVerified) {
-    showToast('⚠️ Please verify your email first! Check your inbox.', 'error');
-    return;
-  }
-
   // Fetch listing from API
   const listings = await API.get('/listings');
-  const listing = listings.find(l => l._id === listingId);
+  const listing = listings.find(l => String(l._id) === String(listingId));
   if (!listing) return showToast('Listing not found.', 'error');
 
-  const orderBtn = document.querySelector('#modal-food-content .btn');
-  if (orderBtn) { orderBtn.textContent = '⏳ Sending OTP...'; orderBtn.disabled = true; }
+  const targetBtn = btnElement || document.querySelector('#modal-food-content .btn');
+  const originalText = targetBtn ? targetBtn.innerHTML : '';
+  
+  if (targetBtn) { targetBtn.textContent = '⏳ Sending...'; targetBtn.disabled = true; }
 
   const res = await API.post('/orders', {
     listingId,
@@ -855,22 +868,31 @@ async function claimOrOrder(listingId) {
     amount: listing.price
   });
 
-  if (orderBtn) { orderBtn.textContent = 'Request Food'; orderBtn.disabled = false; }
+  if (targetBtn) { targetBtn.innerHTML = originalText; targetBtn.disabled = false; }
 
   if (res.error) return showToast(res.error, 'error');
 
   _pendingRequest = { ...listing, orderId: res.orderId };
+  sessionStorage.setItem('fb_pending_request', JSON.stringify(_pendingRequest));
 
   document.getElementById('modal-food-detail').classList.remove('active');
-  showToast('📧 OTP sent to your Gmail! Check your inbox.');
+  
+  // Show confirmation popup instead of toast
+  document.getElementById('modal-order-sent').classList.add('active');
+  
+  // Refresh listings and orders right away
+  renderBrowseListings();
+  renderReceiverOrders();
+  renderReceiverClaims();
+}
 
-  // Show OTP modal after a brief moment
-  setTimeout(() => {
-    clearOTPInputs();
-    startOTPTimer();
-    document.getElementById('modal-otp-verify').classList.add('active');
-    setTimeout(() => document.getElementById('otp-1').focus(), 100);
-  }, 1000);
+function openOTPModal(orderId, listingId) {
+  _pendingRequest = { orderId, _id: listingId };
+  sessionStorage.setItem('fb_pending_request', JSON.stringify(_pendingRequest));
+  clearOTPInputs();
+  startOTPTimer();
+  document.getElementById('modal-otp-verify').classList.add('active');
+  setTimeout(() => document.getElementById('otp-1').focus(), 100);
 }
 
 let otpInterval;
@@ -917,8 +939,50 @@ function backOTP(event, prevId) {
 function cancelOTP() {
   document.getElementById('modal-otp-verify').classList.remove('active');
   _pendingRequest = null;
+  sessionStorage.removeItem('fb_pending_request');
   clearOTPInputs();
   clearInterval(otpInterval);
+}
+
+function simulateDispatchTracking() {
+  document.getElementById('modal-order-tracking').classList.add('active');
+  
+  // reset all steps
+  for (let i = 1; i <= 4; i++) {
+    const step = document.getElementById(`track-step-${i}`);
+    if (step) step.classList.remove('active');
+    if (i < 4) {
+      const conn = document.getElementById(`track-conn-${i}`);
+      if (conn) conn.classList.remove('filled');
+    }
+  }
+
+  // Animate sequential dispatch stages
+  const timings = [500, 2500, 5000, 7500];
+  
+  // step 1
+  setTimeout(() => {
+    document.getElementById('track-step-1').classList.add('active');
+    setTimeout(() => { document.getElementById('track-conn-1').classList.add('filled'); }, 400);
+  }, timings[0]);
+
+  // step 2
+  setTimeout(() => {
+    document.getElementById('track-step-2').classList.add('active');
+    setTimeout(() => { document.getElementById('track-conn-2').classList.add('filled'); }, 400);
+  }, timings[1]);
+
+  // step 3
+  setTimeout(() => {
+    document.getElementById('track-step-3').classList.add('active');
+    setTimeout(() => { document.getElementById('track-conn-3').classList.add('filled'); }, 400);
+  }, timings[2]);
+
+  // step 4
+  setTimeout(() => {
+    document.getElementById('track-step-4').classList.add('active');
+    showToast('🎉 Order completed successfully!', 'success');
+  }, timings[3]);
 }
 
 async function verifyOrderOTP() {
@@ -959,9 +1023,10 @@ async function verifyOrderOTP() {
 
   document.getElementById('modal-otp-verify').classList.remove('active');
   clearInterval(otpInterval);
-  showToast('🎉 Order verified and completed! Check your email for confirmation.', 'success');
+  simulateDispatchTracking();
 
   _pendingRequest = null;
+  sessionStorage.removeItem('fb_pending_request');
   clearOTPInputs();
 
   // Refresh listings
@@ -990,6 +1055,7 @@ async function resendOrderOTP() {
   if (res.error) return showToast(res.error, 'error');
 
   _pendingRequest = { ..._pendingRequest, orderId: res.orderId };
+  sessionStorage.setItem('fb_pending_request', JSON.stringify(_pendingRequest));
   clearOTPInputs();
   showToast('📧 New OTP sent to your Gmail!', 'info');
 }
@@ -1083,7 +1149,7 @@ function buildRequestCard(r) {
       </div>
       <div class="req-status">
         <span class="mini-badge badge-${r.status}">${icon} ${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>
-        <div class="req-timestamp">${timeAgo(r.createdAt)}</div>
+        ${r.status === 'approved' ? `<button class="btn btn-primary btn-sm" style="margin-top:8px; display:block; padding:4px 8px; font-size:12px; width:100%" onclick="openOTPModal('${r._id}', '${r.listingId}')">Enter OTP</button>` : `<div class="req-timestamp">${timeAgo(r.createdAt)}</div>`}
       </div>
     </div>`;
 }
@@ -1119,19 +1185,53 @@ document.addEventListener('DOMContentLoaded', () => {
   animateCounter('stat-meals', 12480);
   animateCounter('stat-donors', 843);
 
-  // Refresh expiry indicators every 60 seconds
-  setInterval(() => {
+  // Refresh UI to keep data live (every 5 seconds)
+  setInterval(async () => {
     const activePage = document.querySelector('.page.active');
     if (!activePage) return;
+
+    // Check pending order approval status for UI transition
+    const user = currentUser();
+    if (user && user.role === 'receiver' && _pendingRequest && _pendingRequest.orderId) {
+      const modalSent = document.getElementById('modal-order-sent');
+      const otpModal = document.getElementById('modal-otp-verify');
+      
+      // Proceed if the OTP modal isn't already taking over the screen
+      if (otpModal && !otpModal.classList.contains('active')) {
+        const res = await API.get(`/receiver/dashboard/${user.id}`);
+        if (!res.error && res.requests) {
+          const order = res.requests.find(r => String(r._id) === String(_pendingRequest.orderId));
+          if (order && order.status === 'approved') {
+            if (modalSent) modalSent.classList.remove('active');
+            showToast('🎉 Order approved by donor! Please enter the OTP to confirm.', 'success');
+            openOTPModal(order._id, order.listingId);
+          } else if (order && order.status === 'rejected') {
+            if (modalSent) modalSent.classList.remove('active');
+            showToast('❌ Order was declined by the donor.', 'error');
+            _pendingRequest = null;
+            sessionStorage.removeItem('fb_pending_request');
+          }
+        }
+      }
+    }
+
     if (activePage.id === 'page-receiver') {
       const browseSection = document.getElementById('receiver-browse');
       if (browseSection && browseSection.classList.contains('active')) renderBrowseListings();
+      const claimsSection = document.getElementById('receiver-my-claims');
+      if (claimsSection && claimsSection.classList.contains('active')) renderReceiverClaims();
+      const ordersSection = document.getElementById('receiver-my-orders');
+      if (ordersSection && ordersSection.classList.contains('active')) renderReceiverOrders();
     }
     if (activePage.id === 'page-donor') {
+      const dashboard = document.getElementById('donor-dashboard');
+      if (dashboard && dashboard.classList.contains('active')) renderDonorDashboard();
       const myListings = document.getElementById('donor-my-listings');
       if (myListings && myListings.classList.contains('active')) renderDonorListings(_donorListingFilter);
+      const requests = document.getElementById('donor-requests');
+      if (requests && requests.classList.contains('active')) renderDonorRequests();
     }
-  }, 60000);
+  }, 5000);
 });
 
 function animateCounter(id, target) {

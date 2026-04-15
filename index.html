@@ -398,7 +398,7 @@
       <!-- Requests Section -->
       <section id="donor-requests" class="content-section">
         <div class="section-header">
-          <h1>Food Requests</h1>
+          <h1>Food Requests <span id="donor-req-header-badge" style="font-size:16px; background:#ff9f1c; color:#fff; padding:4px 10px; border-radius:20px; vertical-align:middle; display:none; margin-left:8px;"></span></h1>
           <p>Review and respond to claims and orders from receivers.</p>
         </div>
         <div id="donor-requests-list" class="requests-list">
@@ -438,9 +438,10 @@
             <div class="user-info">
               <strong id="receiver-user-name">Receiver Name</strong>
               <div style="display:flex; align-items:center; gap:4px">
-                <span style="font-size:12px; color:var(--text-muted)" id="receiver-user-email">email@example.com</span>
-                <span id="receiver-verified-badge" style="display:none; font-size:10px; background:#d8f3dc; color:#2d6a4f; padding:2px 6px; border-radius:10px; font-weight:700">✅ Email Verified</span>
+                <small>Receiver</small>
+                <span id="receiver-verified-badge" style="display:none; font-size:10px; background:#d8f3dc; color:#2d6a4f; padding:2px 6px; border-radius:10px; font-weight:700">✅ Verified</span>
               </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px" id="receiver-user-email">email@example.com</div>
             </div>
           </div>
         <button class="btn btn-logout btn-sm btn-full" onclick="logout()">Logout</button>
@@ -656,9 +657,9 @@
 <div id="modal-otp-verify" class="modal-overlay" onclick="closeModal(event)">
   <div class="modal-box otp-verify-box">
     <div style="text-align:center; margin-bottom:24px">
-        <div style="font-size:40px; margin-bottom:12px">🛡️</div>
-        <h2>Verify Your Session</h2>
-        <p style="color:var(--text-muted); font-size:14px">We've sent a 4-digit code to your email.<br>Enter it below to confirm your order.</p>
+        <div style="font-size:40px; margin-bottom:12px">📬</div>
+        <h2>Order has been placed</h2>
+        <p style="color:var(--text-muted); font-size:14px">Check mail for more info.<br>Enter the 6-digit code below to confirm your order.</p>
     </div>
     
     <div class="otp-inputs-row">
@@ -680,6 +681,74 @@
     </div>
     
     <p class="auth-switch" style="margin-top:20px">Didn't get the code? <a href="#" onclick="resendOrderOTP()">Resend Email</a></p>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL: Order Confirmation
+=========================================================== -->
+<div id="modal-order-sent" class="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box" style="text-align:center; padding: 40px 20px; max-width: 400px;">
+    <div style="font-size:64px; margin-bottom:16px;">⏳</div>
+    <h2 style="color:var(--text-dark); margin-bottom:12px;">Order pending donor approval</h2>
+    <p style="color:var(--text-muted); font-size:15px; margin-bottom:32px;">The donor has been notified. You will receive an email with your OTP once the donor confirms.</p>
+    <button class="btn btn-primary btn-full btn-lg" onclick="document.getElementById('modal-order-sent').classList.remove('active')">Close</button>
+  </div>
+</div>
+<!-- ============================================================
+     MODAL: Order Tracking (Dispatch Line)
+============================================================ -->
+<div id="modal-order-tracking" class="modal-overlay tracking-overlay" onclick="closeModal(event)">
+  <div class="modal-box tracking-box">
+    <div class="tracking-header">
+      <h2>🚚 Order Dispatch Status</h2>
+      <p class="tracking-sub">Live tracking simulation for your food.</p>
+    </div>
+    
+    <div class="tracking-pipeline">
+      <div class="track-step" id="track-step-1">
+        <div class="track-icon">📝</div>
+        <div class="track-text">
+          <strong>Order Confirmed</strong>
+          <small>Donor verified details</small>
+        </div>
+        <div class="track-check">✅</div>
+      </div>
+      <div class="track-connector" id="track-conn-1"></div>
+      
+      <div class="track-step" id="track-step-2">
+        <div class="track-icon">🍱</div>
+        <div class="track-text">
+          <strong>Food Packed</strong>
+          <small>Ready for pickup/dispatch</small>
+        </div>
+        <div class="track-check">✅</div>
+      </div>
+      <div class="track-connector" id="track-conn-2"></div>
+      
+      <div class="track-step" id="track-step-3">
+        <div class="track-icon">🛵</div>
+        <div class="track-text">
+          <strong>Out For Delivery</strong>
+          <small>On the way to you</small>
+        </div>
+        <div class="track-check">✅</div>
+      </div>
+      <div class="track-connector" id="track-conn-3"></div>
+      
+      <div class="track-step" id="track-step-4">
+        <div class="track-icon">🎉</div>
+        <div class="track-text">
+          <strong>Received</strong>
+          <small>Enjoy your meal!</small>
+        </div>
+        <div class="track-check">✅</div>
+      </div>
+    </div>
+
+    <div class="form-actions" style="margin-top: 32px">
+      <button class="btn btn-primary btn-full btn-lg" onclick="document.getElementById('modal-order-tracking').classList.remove('active')">Return to Dashboard</button>
+    </div>
   </div>
 </div>
 

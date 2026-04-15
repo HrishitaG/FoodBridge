@@ -32,7 +32,7 @@ const Order = sequelize.define('Order', {
     listingId: { type: DataTypes.INTEGER, allowNull: false },
     receiverId: { type: DataTypes.INTEGER, allowNull: false },
     donorId: { type: DataTypes.INTEGER, allowNull: false },
-    status: { type: DataTypes.ENUM('pending', 'verified', 'completed', 'rejected'), defaultValue: 'pending' },
+    status: { type: DataTypes.ENUM('pending', 'approved', 'verified', 'completed', 'rejected'), defaultValue: 'pending' },
     amount: { type: DataTypes.FLOAT, defaultValue: 0 },
     otp: { type: DataTypes.STRING },
     otpExpiry: { type: DataTypes.DATE }
